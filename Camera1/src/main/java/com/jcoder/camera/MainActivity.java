@@ -26,7 +26,7 @@ import java.text.SimpleDateFormat;
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback, View.OnClickListener, MediaRecorder.OnInfoListener, MediaRecorder.OnErrorListener {
 
-    Context mContext;
+    Context mContext = MainActivity.this;
     SurfaceView surfaceView;
     SurfaceHolder mSurfaceHolder;
     Camera camera;
@@ -38,7 +38,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        mContext = MainActivity.this;
         surfaceView = findViewById(R.id.surface_camera);
         surfaceView.getHolder().addCallback(this);
     }
@@ -118,12 +117,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
     public void onClick(View view) {
         switch (view.getId()) {
             case R.id.change:
-                if(!isRecording){
+                if (!isRecording) {
                     changeCamera();
                 }
                 break;
             case R.id.picture:
-                if(!isRecording){
+                if (!isRecording) {
                     tackPicture();
                 }
                 break;
