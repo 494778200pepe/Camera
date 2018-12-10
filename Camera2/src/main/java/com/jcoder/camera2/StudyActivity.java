@@ -24,12 +24,14 @@ import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.util.Size;
+import android.util.SparseIntArray;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -72,7 +74,7 @@ public class StudyActivity extends AppCompatActivity implements View.OnClickList
         Log.d("pepe", "onCreate");
         setContentView(R.layout.activity_study);
         mTextureView = findViewById(R.id.texture);
-        mButtonVideo = findViewById(R.id.video);
+        mButtonVideo = findViewById(R.id.record);
         getCameraId();
     }
 
@@ -301,9 +303,6 @@ public class StudyActivity extends AppCompatActivity implements View.OnClickList
         }
     }
 
-    /**
-     * Update the camera preview. {@link #startPreview()} needs to be called in advance.
-     */
     private void updatePreview() {
         Log.d("pepe", "updatePreview");
         if (null == mCameraDevice) {
@@ -323,6 +322,8 @@ public class StudyActivity extends AppCompatActivity implements View.OnClickList
         builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
     }
 
+    private boolean mIsRecordingVideo;
+
     @Override
     public void onClick(View view) {
         switch (view.getId()) {
@@ -333,11 +334,11 @@ public class StudyActivity extends AppCompatActivity implements View.OnClickList
                 tackPicture();
                 break;
             case R.id.record:
-//                if (mIsRecordingVideo) {
-//                    stopRecordingVideo();
-//                } else {
-//                    startRecordingVideo();
-//                }
+                if (mIsRecordingVideo) {
+                    stopRecordingVideo();
+                } else {
+                    startRecordingVideo();
+                }
                 break;
         }
     }
@@ -346,6 +347,9 @@ public class StudyActivity extends AppCompatActivity implements View.OnClickList
     private static final int BACK = 2;//后置摄像头标记
     private int currentCameraType = BACK;//当前打开的摄像头标记
 
+    /**
+     * 切换前后摄像头
+     */
     private void changeCamera() {
         closeCamera();
         if (currentCameraType == FRONT) {
@@ -356,12 +360,135 @@ public class StudyActivity extends AppCompatActivity implements View.OnClickList
         openCamera(mTextureView.getWidth(), mTextureView.getHeight());
     }
 
-    private void tackPicture(){
-
-    }
     /**
-     * Starts a background thread and its {@link Handler}.
+     * 拍照
      */
+    private void tackPicture() {
+    }
+
+    /**
+     * 开始录像
+     */
+    private void startRecordingVideo() {
+        if (null == mCameraDevice || !mTextureView.isAvailable() || null == mPreviewSize) {
+            return;
+        }
+        try {
+            closePreviewSession();
+            setUpMediaRecorder();
+            SurfaceTexture texture = mTextureView.getSurfaceTexture();
+            assert texture != null;
+            texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+            mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            List<Surface> surfaces = new ArrayList<>();
+
+            // Set up Surface for the camera preview
+            Surface previewSurface = new Surface(texture);
+            surfaces.add(previewSurface);
+            mPreviewBuilder.addTarget(previewSurface);
+
+            // Set up Surface for the MediaRecorder
+            Surface recorderSurface = mMediaRecorder.getSurface();
+            surfaces.add(recorderSurface);
+            mPreviewBuilder.addTarget(recorderSurface);
+
+            // Start a capture session
+            // Once the session starts, we can update the UI and start recording
+            mCameraDevice.createCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
+
+                @Override
+                public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
+                    mPreviewSession = cameraCaptureSession;
+                    updatePreview();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            // UI
+                            mButtonVideo.setText(R.string.stop);
+                            mIsRecordingVideo = true;
+
+                            // Start recording
+                            mMediaRecorder.start();
+                        }
+                    });
+                }
+
+                @Override
+                public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
+                    Toast.makeText(mContext, "Failed", Toast.LENGTH_SHORT).show();
+                }
+            }, mBackgroundHandler);
+        } catch (CameraAccessException | IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static final int SENSOR_ORIENTATION_DEFAULT_DEGREES = 90;
+    private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;
+    private static final SparseIntArray DEFAULT_ORIENTATIONS = new SparseIntArray();
+    static {
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_0, 90);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_90, 0);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_180, 270);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_270, 180);
+    }
+    private static final SparseIntArray INVERSE_ORIENTATIONS = new SparseIntArray();
+    static {
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_0, 270);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_90, 180);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_180, 90);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_270, 0);
+    }
+    private void setUpMediaRecorder() throws IOException {
+        mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+        mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+        if (mNextVideoAbsolutePath == null || mNextVideoAbsolutePath.isEmpty()) {
+            mNextVideoAbsolutePath = getVideoFilePath(mContext);
+        }
+        mMediaRecorder.setOutputFile(mNextVideoAbsolutePath);
+        mMediaRecorder.setVideoEncodingBitRate(10000000);
+        mMediaRecorder.setVideoFrameRate(30);
+        mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
+        mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+        mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        switch (mSensorOrientation) {
+            case SENSOR_ORIENTATION_DEFAULT_DEGREES:
+                mMediaRecorder.setOrientationHint(DEFAULT_ORIENTATIONS.get(rotation));
+                break;
+            case SENSOR_ORIENTATION_INVERSE_DEGREES:
+                mMediaRecorder.setOrientationHint(INVERSE_ORIENTATIONS.get(rotation));
+                break;
+        }
+        mMediaRecorder.prepare();
+    }
+
+    private String getVideoFilePath(Context context) {
+        final File dir = context.getExternalFilesDir(null);
+        return (dir == null ? "" : (dir.getAbsolutePath() + "/"))
+                + System.currentTimeMillis() + ".mp4";
+    }
+
+    /**
+     * 停止录像
+     */
+    private void stopRecordingVideo() {
+        // UI
+        mIsRecordingVideo = false;
+        mButtonVideo.setText(R.string.record);
+        // Stop recording
+        mMediaRecorder.stop();
+        mMediaRecorder.reset();
+
+        Toast.makeText(mContext, "Video saved: " + mNextVideoAbsolutePath,
+                Toast.LENGTH_SHORT).show();
+        Log.d("pepe", "Video saved: " + mNextVideoAbsolutePath);
+        mNextVideoAbsolutePath = null;
+        startPreview();
+    }
+
+
     private void startBackgroundThread() {
         Log.d("pepe", "startBackgroundThread");
         mBackgroundThread = new HandlerThread("CameraBackground");
@@ -369,9 +496,6 @@ public class StudyActivity extends AppCompatActivity implements View.OnClickList
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
     }
 
-    /**
-     * Stops the background thread and its {@link Handler}.
-     */
     private void stopBackgroundThread() {
         Log.d("pepe", "stopBackgroundThread");
         mBackgroundThread.quitSafely();
